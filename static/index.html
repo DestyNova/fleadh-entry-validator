@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Fleadh entry sheet validation</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.16.9/xlsx.full.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</head>
+<body>
+
+<div class="container mt-5">
+  <div class="row">
+    <div class="col-md-6 mx-auto">
+      <div class="card">
+        <div class="card-header">
+          <h5>Fleadh entry sheet validation</h5>
+        </div>
+        <div class="card-body">
+          <form id="upload-form">
+            <div class="form-group">
+              <label for="file-input">Upload Excel spreadsheet (.xsl, .xslx)</label>
+              <input type="file" class="form-control-file" id="file-input">
+            </div>
+            <button type="submit" class="btn btn-primary">Validate</button>
+          </form>
+        </div>
+      </div>
+      <div id="results" class="mt-3"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  $(document).ready(function() {
+    $('#upload-form').submit(function(event) {
+      event.preventDefault();
+      var files = $('#file-input')[0].files;
+      if (files.length > 0) {
+        var fileReader = new FileReader();
+        fileReader.onload = function(event) {
+          var data = new Uint8Array(event.target.result);
+          var workbook = XLSX.read(data, {type: 'array'});
+          var sheetName = workbook.SheetNames[0];
+          var sheet = workbook.Sheets[sheetName];
+          var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
+          var [errors,numbers,names] = validateSpreadsheet(rows);
+          displayResults(errors, numbers, names);
+        };
+        fileReader.readAsArrayBuffer(files[0]);
+      }
+    });
+
+    function validateSpreadsheet(rows) {
+      var errors = [];
+      var competitorNumberByName = {};
+      var competitorsByCompetitionNumber = {};
+      var competitionsByCompetitorName = {};
+
+      for (var i = 2; i < rows.length; i++) {
+        var row = rows[i];
+        if (!row) {
+          continue;
+        }
+        var competitorName = trim(row[3]);
+        if (!competitorName) {
+          continue;
+        }
+        var membershipNo = parseInt(trim(row[8]) || "0");
+        var noGrade = trim(row[1]);
+        var competitionName = trim(row[2]);
+        var branchName = trim(row[5]);
+        var county = trim(row[6]);
+        var country = trim(row[7]);
+        var instrument = trim(row[9]);
+        var ageGrade = noGrade ? noGrade.charAt(noGrade.length - 1) : null;
+        var competitionNumber = parseInt(noGrade.slice(0,-1) || "0");
+
+        competitorsByCompetitionNumber[competitionNumber] = competitorsByCompetitionNumber[competitionNumber] || {};
+        competitionsByCompetitorName[competitorName] = competitionsByCompetitorName[competitorName] || {};
+
+        if (competitionNumber > 0 && (competitionNumber < 23 || competitionNumber > 30)) { // skip this check for duets / trios...
+          if (membershipNo === 0 && ageGrade !== 'M') {
+            errors.push(`Membership number missing for competitor ${competitorName} in competition ${competitionNumber} (row ${(i+1)})`);
+          }
+          if (competitorName in competitorNumberByName && competitorNumberByName[competitorName] !== membershipNo) {
+            errors.push(`Competitor ${competitorName} has multiple membership numbers: ${competitorNumberByName[competitorName]} and ${membershipNo} in competition ${competitionNumber} (row ${(i+1)})`);
+          } else if (membershipNo !== 0) {
+            competitorNumberByName[competitorName] = membershipNo;
+          }
+
+          if (competitionNumber in competitorsByCompetitionNumber && competitorName in competitorsByCompetitionNumber[competitionNumber]) {
+            errors.push("Duplicate competition number: " + competitionNumber + " for competitor " 
+              + competitorName + " and " + competitorsByCompetitionNumber[competitionNumber].keys
+              + " (row " + (i+1) + ")");
+          } else {
+            competitorsByCompetitionNumber[competitionNumber][competitorName] = true;
+          }
+
+          if (competitorName in competitionsByCompetitorName && competitionNumber in competitionsByCompetitorName[competitorName]) {
+            errors.push("Competitor " + competitorName + " is already in competition " 
+              + competitionNumber + " (row " + (i+1) + ")");
+          } else {
+            competitionsByCompetitorName[competitorName][competitionNumber] = true;
+          }
+        }
+
+        if (competitionNumber > 0 && (branchName === '' || county === '')) {
+          errors.push(`Missing branch name or county for competitor ${competitorName} in competition ${competitionNumber} (row ${i+1})`);
+        }
+      }
+      return [errors, Object.keys(competitorNumberByName).length, Object.keys(competitionsByCompetitorName).length];
+    }
+
+    function trim(s) {
+      v = s || "";
+      return typeof(v) == "string" ? v.trim() : v;
+    }
+
+    function displayResults(errors, numbers, names) {
+      var resultsDiv = $('#results');
+      resultsDiv.empty();
+      if (errors.length === 0) {
+        resultsDiv.append(`<div class="alert alert-success" role="alert">Validation successful! Found ${numbers} membership numbers and ${names} competitor / group / band names.</div>`);
+      } else {
+        var ul = $('<ul>');
+        errors.forEach(function(error) {
+          ul.append($('<li>').text(error));
+        });
+        var alertDiv = $('<div class="alert alert-danger" role="alert">');
+        alertDiv.append('<p>The following errors were found:</p>');
+        alertDiv.append(ul);
+        resultsDiv.append(alertDiv);
+      }
+    }
+  });
+</script>
+
+</body>
+</html>

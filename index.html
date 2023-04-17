@@ -64,6 +64,7 @@
   });
 
   function cleanup(rows) {
+    console.log("Cleaning up");
     var cleanedWorkbook = XLSX.utils.book_new();
     var cleanedSheet = {};
     var messages = [];

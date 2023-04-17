@@ -9,6 +9,7 @@
   <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"></script>
   <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
   <style>
     ul { list-style-position: inside; }
   </style>
@@ -28,7 +29,7 @@
           <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mb-2">Validate</button>
           <button type="button" id="cleanup" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mb-2">Preprocess</button>
         </form>
-        <div id="results"></div>
+        <div id="results" />
       </div>
     </div>
   </div>
@@ -47,133 +48,203 @@
           var sheetName = workbook.SheetNames[0];
           var sheet = workbook.Sheets[sheetName];
           var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
+          console.log(rows);
           var [errors,numbers,names] = validateSpreadsheet(rows);
-          displayResults(errors, numbers, names);
+          displayValidationResults(errors, numbers, names);
 
           $('#cleanup').enable;
           $('#cleanup').click(function() {
-
-            // Create a new workbook to hold the cleaned data
-            var cleanedWorkbook = XLSX.utils.book_new();
-
-            // Loop over all sheets in the original workbook
-            workbook.SheetNames.forEach(function(sheetName) {
-              var originalSheet = workbook.Sheets[sheetName];
-
-              // Create a new sheet object for the cleaned data
-              var cleanedSheet = {};
-              Object.keys(originalSheet).forEach(function(cellAddress) {
-                if (/^[A-Z]{1,3}\d{1,7}$/.test(cellAddress)) {
-                  var originalCell = originalSheet[cellAddress];
-                  if (typeof(originalCell.v) === "string") {
-                    // Trim the cell value if it's a string
-                    var cleanedCell = {
-                      v: originalCell.v.trim(),
-                      w: originalCell.w.trim(),
-                      t: originalCell.t,
-                      z: originalCell.z
-                    };
-                    var cleanedRow = [[cleanedCell]];
-                    XLSX.utils.sheet_add_aoa(cleanedSheet, cleanedRow, { origin: cellAddress });
-                  } else {
-                    // Just copy the cell value if it's not a string
-                    var originalRow = [[originalCell]];
-                    XLSX.utils.sheet_add_aoa(cleanedSheet, originalRow, { origin: cellAddress });
-                  }
-                }
-              });
-
-              XLSX.utils.book_append_sheet(cleanedWorkbook, cleanedSheet, sheetName);
-            });
-
-            var cleanedData = XLSX.writeFile(cleanedWorkbook, "cleaned.xls", { cellDates: true, type: "binary" });
+            var messages = cleanup(rows);
+            displayCleanupResults(messages);
           });
         };
         fileReader.readAsArrayBuffer(files[0]);
       }
     });
-
-    function validateSpreadsheet(rows) {
-      var errors = [];
-      var competitorNumberByName = {};
-      var competitorsByCompetitionNumber = {};
-      var competitionsByCompetitorName = {};
-
-      for (var i = 2; i < rows.length; i++) {
-        var row = rows[i];
-        if (!row) {
-          continue;
-        }
-        var competitorName = trim(row[3]);
-        if (!competitorName) {
-          continue;
-        }
-        var membershipNo = parseInt(trim(row[8]) || "0");
-        var noGrade = trim(row[1]);
-        var competitionName = trim(row[2]);
-        var branchName = trim(row[5]);
-        var county = trim(row[6]);
-        var country = trim(row[7]);
-        var instrument = trim(row[9]);
-        var ageGrade = noGrade ? noGrade.charAt(noGrade.length - 1) : null;
-        var competitionNumber = parseInt(noGrade.slice(0,-1) || "0");
-
-        competitorsByCompetitionNumber[competitionNumber] = competitorsByCompetitionNumber[competitionNumber] || {};
-        competitionsByCompetitorName[competitorName] = competitionsByCompetitorName[competitorName] || {};
-
-        if (competitionNumber > 0 && (competitionNumber < 23 || competitionNumber > 30)) { // skip this check for duets / trios...
-          if (membershipNo === 0 && ageGrade !== 'M') {
-            errors.push(`Row ${i+1}: Membership number missing for competitor ${competitorName} in competition ${competitionNumber}`);
-          }
-          if (competitorName in competitorNumberByName && competitorNumberByName[competitorName] !== membershipNo) {
-            errors.push(`Row ${i+1}: Competitor ${competitorName} has multiple membership numbers: ${competitorNumberByName[competitorName]} and ${membershipNo} in competition ${competitionNumber}`);
-          } else if (membershipNo !== 0) {
-            competitorNumberByName[competitorName] = membershipNo;
-          }
-
-          if (competitionNumber in competitorsByCompetitionNumber && competitorName in competitorsByCompetitionNumber[competitionNumber]) {
-            errors.push(`Row ${i+1}: Duplicate competition number: ${competitionNumber} for competitor ${competitorName} and ${competitorsByCompetitionNumber[competitionNumber].keys}`);
-          } else {
-            competitorsByCompetitionNumber[competitionNumber][competitorName] = true;
-          }
-
-          if (competitorName in competitionsByCompetitorName && competitionNumber in competitionsByCompetitorName[competitorName]) {
-            errors.push(`Row ${i+1}: Competitor ${competitorName} is already in competition ${competitionNumber}`);
-          } else {
-            competitionsByCompetitorName[competitorName][competitionNumber] = true;
-          }
-        }
-
-        if (competitionNumber > 0 && (branchName === '' || county === '')) {
-          errors.push(`Row ${i+1}: Missing branch name or county for competitor ${competitorName} in competition ${competitionNumber}`);
-        }
-      }
-      return [errors, Object.keys(competitorNumberByName).length, Object.keys(competitionsByCompetitorName).length];
-    }
-
-    function trim(s) {
-      v = s || "";
-      return typeof(v) == "string" ? v.trim() : v;
-    }
-
-    function displayResults(errors, numbers, names) {
-      var resultsDiv = $('#results');
-      resultsDiv.empty();
-      if (errors.length === 0) {
-        resultsDiv.append(`<div class="bg-blue-100 border-t border-b border-blue-500 text-blue-700 px-4 py-3" role="alert"><p class="font-bold">Validation successful</p><p class="text-sm">Found ${numbers} membership numbers and ${names} competitor / group / band names.</p></div>`);
-      } else {
-
-        var ul = $('<ul class="list-disc">');
-        errors.forEach(function(error) {
-          ul.append($('<li>').text(error));
-        });
-        var alertDiv = $(`<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"><strong class="font-bold">Error</strong>`);
-        alertDiv.append('<p>The following errors were found:</p>');
-        alertDiv.append(ul);
-        resultsDiv.append(alertDiv);
-      }
-    }
   });
+
+  function cleanup(rows) {
+    var cleanedWorkbook = XLSX.utils.book_new();
+    var cleanedSheet = {};
+    var messages = [];
+
+    XLSX.utils.sheet_add_aoa(cleanedSheet, [rows[0]], { origin: "A1" });
+    XLSX.utils.sheet_add_aoa(cleanedSheet, [rows[1]], { origin: "A2" });
+
+    for (var i = 2; i < rows.length; i++) {
+      var row = rows[i];
+      if (!row) {
+        continue;
+      }
+
+      // for every string-valued cell, trim its value
+      for (var j = 0; j < row.length; j++) {
+        if (j > 10) console.log(i,j);
+        row[j] = trim(row[j]);
+      }
+
+      var competitorName = row[3];
+      var membershipNo = parseInt(row[8] || "#");
+      var noGrade = row[1];
+      var competitionName = row[2];
+      var branchName = row[5];
+      var county = row[6];
+      var country = row[7];
+      var instrument = row[9];
+      var ageGrade = noGrade ? noGrade.charAt(noGrade.length - 1) : null;
+      var competitionNumber = parseInt(noGrade.slice(0,-1) || "0");
+
+      // row[0] means column A, row[1] is column B, etc.
+      // if the competition code (column B) matches (2(3|4)(A|B|C|D)) or (4(0|1|2|3|4|5|6|7)(A|B|C|D|F|L)), then it will have multiple entries on the following lines.
+      // if the competition code is non-blank and we have multiple entries and any the cells in columns E, F or G are blank, each blank cell should take its value from the same column cell in the next row.
+      if (/^2[34][ABCD]|4[01234567][ABCDFL]/.test(noGrade)) {
+        for (var k = 4; k <= 6; k++) {
+          if (row[k] === undefined || row[k] == "") {
+            if (rows[i+1][2] == '1.') {
+              const missing = trim(rows[i+1][k]);
+              if (missing !== undefined && missing != "") {
+                row[k] = missing;
+                messages.push(`[INFO] Row ${i+1} missing value in column ${String.fromCharCode(65+k)}; replaced with value from next row: ${row[k]}`);
+              }
+            } else {
+              messages.push(`[ERROR] Row ${i+1} missing value in column ${String.fromCharCode(65+k)}. Couldn't find first competitor on next row.`);
+            }
+          }
+        }
+      }
+      // if the county (column G) is non-blank and its trimmed value matches (.*Cliath|BAC|BÁC|Dublin), replace it with Átha Cliath.
+      if (/.*(Cliath|BAC|BÁC|Dublin)/.test(county)) {
+        row[6] = "Átha Cliath";
+      }
+      // if instrument (column J) is non-blank, replace it with its trimmed title-cased value.
+      if (instrument != "") {
+        row[9] = toTitleCase(instrument);
+      }
+      // if the row has a non-blank membership number (column I), it should be replaced with its parsed numeric value (if it can be parsed successfully, otherwise it should report an error)
+
+      // write back the row
+      XLSX.utils.sheet_add_aoa(cleanedSheet, [row], { origin: `A${i+1}` });
+    }
+
+    XLSX.utils.book_append_sheet(cleanedWorkbook, cleanedSheet, "Entries");
+    var cleanedData = XLSX.writeFile(cleanedWorkbook, "cleaned.xls", { cellDates: true, type: "binary" });
+    return messages;
+  }
+
+  function toTitleCase(s) {
+    if (s === undefined || s == "")
+      return s;
+
+    return s.toLowerCase().split(' ').map(function(word) {
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    }).join(' ');
+  }
+
+  function validateSpreadsheet(rows) {
+    var errors = [];
+    var competitorNumberByName = {};
+    var competitorsByCompetitionNumber = {};
+    var competitionsByCompetitorName = {};
+
+    for (var i = 2; i < rows.length; i++) {
+      var row = rows[i];
+      if (!row) {
+        continue;
+      }
+      var competitorName = trim(row[3]);
+      var membershipNo = parseInt(trim(row[8]) || "#");
+      var noGrade = trim(row[1]);
+      var competitionName = trim(row[2]);
+      var branchName = trim(row[5]);
+      var county = trim(row[6]);
+      var country = trim(row[7]);
+      var instrument = trim(row[9]);
+      var ageGrade = noGrade ? noGrade.charAt(noGrade.length - 1) : null;
+      var competitionNumber = parseInt(noGrade.slice(0,-1) || "0");
+
+      if (competitionNumber >= 25 && competitionNumber <= 30 && (branchName !== '' || county !== '') && competitorName === '') {
+        errors.push(`Row ${i+1}: Found branch name or county for band or group, but no band/group name in competition ${competitionNumber}`);
+      }
+
+      if (membershipNo > 0 && competitorName === '') {
+        errors.push(`Row ${i+1}: Found membership number but no name in competition ${competitionNumber}`);
+      }
+
+      if (!competitorName) {
+        continue;
+      }
+
+      competitorsByCompetitionNumber[competitionNumber] = competitorsByCompetitionNumber[competitionNumber] || {};
+      competitionsByCompetitorName[competitorName] = competitionsByCompetitorName[competitorName] || {};
+
+      if (competitionNumber > 0 && (competitionNumber < 23 || competitionNumber > 30)) { // skip this check for duets / trios...
+        if (isNaN(membershipNo) && ageGrade !== 'M') {
+          errors.push(`Row ${i+1}: Membership number missing or invalid for competitor ${competitorName} in competition ${competitionNumber}`);
+        }
+        if (competitorName in competitorNumberByName && competitorNumberByName[competitorName] !== membershipNo) {
+          errors.push(`Row ${i+1}: Competitor ${competitorName} has multiple membership numbers: ${competitorNumberByName[competitorName]} and ${membershipNo} in competition ${competitionNumber}`);
+        } else if (!isNaN(membershipNo)) {
+          competitorNumberByName[competitorName] = membershipNo;
+        }
+
+        if (competitionNumber in competitorsByCompetitionNumber && competitorName in competitorsByCompetitionNumber[competitionNumber]) {
+          errors.push(`Row ${i+1}: Duplicate competition number: ${competitionNumber} for competitor ${competitorName} and ${competitorsByCompetitionNumber[competitionNumber].keys}`);
+        } else {
+          competitorsByCompetitionNumber[competitionNumber][competitorName] = true;
+        }
+
+        if (competitorName in competitionsByCompetitorName && competitionNumber in competitionsByCompetitorName[competitorName]) {
+          errors.push(`Row ${i+1}: Competitor ${competitorName} is already in competition ${competitionNumber}`);
+        } else {
+          competitionsByCompetitorName[competitorName][competitionNumber] = true;
+        }
+      }
+
+      if (competitionNumber > 0 && (branchName === '' || county === '')) {
+        errors.push(`Row ${i+1}: Missing branch name or county for competitor ${competitorName} in competition ${competitionNumber}`);
+      }
+    }
+    return [errors, Object.keys(competitorNumberByName).length, Object.keys(competitionsByCompetitorName).length];
+  }
+
+  function trim(s) {
+    v = s || "";
+    return typeof(v) == "string" ? v.trim() : v;
+  }
+
+  function displayValidationResults(errors, numbers, names) {
+    var resultsDiv = $('#results');
+    resultsDiv.empty();
+    if (errors.length === 0) {
+      resultsDiv.append(`<div class="bg-blue-100 border-t border-b border-blue-500 text-blue-700 px-4 py-3" role="alert"><p class="font-bold">Validation successful</p><p class="text-sm">Found ${numbers} membership numbers and ${names} competitor / group / band names.</p></div>`);
+    } else {
+
+      var ul = $('<ul class="list-disc">');
+      errors.forEach(function(error) {
+        ul.append($('<li>').text(error));
+      });
+      var alertDiv = $(`<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"><strong class="font-bold">Error</strong></div>`);
+      alertDiv.append('<p>The following errors were found:</p>');
+      alertDiv.append(ul);
+      resultsDiv.append(alertDiv);
+    }
+  }
+
+  function displayCleanupResults(info) {
+    var resultsDiv = $('#results');
+    var res = $(`<div class="bg-blue-100 border-t border-b border-blue-500 text-blue-700 px-4 py-3" role="alert"><p class="font-bold">Cleanup successful</p></div>`);
+    resultsDiv.empty();
+    resultsDiv.append(res);
+
+    var ul = $('<ul class="list-disc">');
+    info.forEach(function(error) {
+      ul.append($('<li>').text(error));
+    });
+    if (info.length > 0) {
+      res.append('<p>Changes made:</p>');
+      res.append(ul);
+    }
+  }
 </script>
 
 </body>

@@ -114,7 +114,7 @@
         }
       }
       // if the county (column G) is non-blank and its trimmed value matches (.*Cliath|BAC|BÁC|Dublin), replace it with Átha Cliath.
-      if (/.*(Cliath|BAC|BÁC|Dublin)/.test(county)) {
+      if (/.*(Cliath|Chliath|BAC|BÁC|Dublin)/.test(county)) {
         row[6] = "Átha Cliath";
       }
       // if instrument (column J) is non-blank, replace it with its trimmed title-cased value.

@@ -41,6 +41,7 @@
       event.preventDefault();
       var files = $('#file-input')[0].files;
       if (files.length > 0) {
+        const filename = files[0].name.split('.')[0];
         var fileReader = new FileReader();
         fileReader.onload = function(event) {
           var data = new Uint8Array(event.target.result);
@@ -48,13 +49,12 @@
           var sheetName = workbook.SheetNames[0];
           var sheet = workbook.Sheets[sheetName];
           var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
-          console.log(rows);
           var [errors,numbers,names] = validateSpreadsheet(rows);
           displayValidationResults(errors, numbers, names);
 
           $('#cleanup').enable;
-          $('#cleanup').click(function() {
-            var messages = cleanup(rows);
+          $('#cleanup').off('click').click(function() {
+            var messages = cleanup(rows, filename);
             displayCleanupResults(messages);
           });
         };
@@ -63,8 +63,7 @@
     });
   });
 
-  function cleanup(rows) {
-    console.log("Cleaning up");
+  function cleanup(rows, filename) {
     var cleanedWorkbook = XLSX.utils.book_new();
     var cleanedSheet = {};
     var messages = [];
@@ -80,7 +79,6 @@
 
       // for every string-valued cell, trim its value
       for (var j = 0; j < row.length; j++) {
-        if (j > 10) console.log(i,j);
         row[j] = trim(row[j]);
       }
 
@@ -93,7 +91,7 @@
       var country = row[7];
       var instrument = row[9];
       var ageGrade = noGrade ? noGrade.charAt(noGrade.length - 1) : null;
-      var competitionNumber = parseInt(noGrade.slice(0,-1) || "0");
+      var competitionNumber = parseInt((noGrade || "").slice(0,-1) || "0");
 
       // row[0] means column A, row[1] is column B, etc.
       // if the competition code (column B) matches (2(3|4)(A|B|C|D)) or (4(0|1|2|3|4|5|6|7)(A|B|C|D|F|L)), then it will have multiple entries on the following lines.
@@ -114,6 +112,7 @@
         }
       }
       // if the county (column G) is non-blank and its trimmed value matches (.*Cliath|BAC|BÁC|Dublin), replace it with Átha Cliath.
+      county = row[6]; // update in case we changed it in the previous step
       if (/.*(Cliath|Chliath|BAC|BÁC|Dublin)/.test(county)) {
         row[6] = "Átha Cliath";
       }
@@ -128,7 +127,7 @@
     }
 
     XLSX.utils.book_append_sheet(cleanedWorkbook, cleanedSheet, "Entries");
-    var cleanedData = XLSX.writeFile(cleanedWorkbook, "cleaned.xls", { cellDates: true, type: "binary" });
+    var cleanedData = XLSX.writeFile(cleanedWorkbook, `cleaned-${filename}.xls`, { cellDates: true, type: "binary" });
     return messages;
   }
 
@@ -171,12 +170,26 @@
         errors.push(`Row ${i+1}: Found membership number but no name in competition ${competitionNumber}`);
       }
 
+      // check duets and trios
+      if ((competitionNumber == 23 || competitionNumber == 24 || (competitionNumber >= 40 && competitionNumber <= 47)) && trim(rows[i+1][3]) !== "") {
+        for (var k = 4; k <= 6; k++) {
+          if (row[k] === undefined || row[k] == "") {
+            errors.push(`Row ${i+1}: missing value in column ${String.fromCharCode(65+k)} for competition ${competitionNumber}`);
+          }
+        }
+      }
+
+      // Skip this row if it looks like a blank entry
       if (!competitorName) {
         continue;
       }
 
       competitorsByCompetitionNumber[competitionNumber] = competitorsByCompetitionNumber[competitionNumber] || {};
       competitionsByCompetitorName[competitorName] = competitionsByCompetitorName[competitorName] || {};
+
+      if (competitionNumber == 0 && !/^[12345678]\.$/.test(competitionName)) {
+        errors.push(`Row ${i+1}: Competition code missing or invalid for competitor ${competitorName} for competition name: ${competitionName}`);
+      }
 
       if (competitionNumber > 0 && (competitionNumber < 23 || competitionNumber > 30)) { // skip this check for duets / trios...
         if (isNaN(membershipNo) && ageGrade !== 'M') {
@@ -209,8 +222,10 @@
   }
 
   function trim(s) {
-    v = s || "";
-    return typeof(v) == "string" ? v.trim() : v;
+    if (s == undefined) {
+      return "";
+    }
+    return typeof(s) == "string" ? s.trim() : s;
   }
 
   function displayValidationResults(errors, numbers, names) {

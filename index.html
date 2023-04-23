@@ -49,8 +49,8 @@
           var sheetName = workbook.SheetNames[0];
           var sheet = workbook.Sheets[sheetName];
           var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
-          var [errors,numbers,names] = validateSpreadsheet(rows);
-          displayValidationResults(errors, numbers, names);
+          var [errors,warnings,numbers,names] = validateSpreadsheet(rows);
+          displayValidationResults(errors, warnings, numbers, names);
 
           $('#cleanup').enable;
           $('#cleanup').off('click').click(function() {
@@ -142,6 +142,7 @@
 
   function validateSpreadsheet(rows) {
     var errors = [];
+    var warnings = [];
     var competitorNumberByName = {};
     var competitorsByCompetitionNumber = {};
     var competitionsByCompetitorName = {};
@@ -152,6 +153,7 @@
         continue;
       }
       var competitorName = trim(row[3]);
+      var isMember = "CCÉ" === trim(row[4]);
       var membershipNo = parseInt(trim(row[8]) || "#");
       var noGrade = trim(row[1]);
       var competitionName = trim(row[2]);
@@ -174,7 +176,7 @@
       if ((competitionNumber == 23 || competitionNumber == 24 || (competitionNumber >= 40 && competitionNumber <= 47)) && trim(rows[i+1][3]) !== "") {
         for (var k = 4; k <= 6; k++) {
           if (row[k] === undefined || row[k] == "") {
-            errors.push(`Row ${i+1}: missing value in column ${String.fromCharCode(65+k)} for competition ${competitionNumber}`);
+            warnings.push(`Row ${i+1}: missing value in column ${String.fromCharCode(65+k)} for competition ${competitionNumber}`);
           }
         }
       }
@@ -193,7 +195,11 @@
 
       if (competitionNumber > 0 && (competitionNumber < 23 || competitionNumber > 30)) { // skip this check for duets / trios...
         if (isNaN(membershipNo) && ageGrade !== 'M') {
-          errors.push(`Row ${i+1}: Membership number missing or invalid for competitor ${competitorName} in competition ${competitionNumber}`);
+          if (isMember) {
+            errors.push(`Row ${i+1}: Membership number missing or invalid for competitor ${competitorName} in competition ${competitionNumber}`);
+          } else {
+            warnings.push(`Row ${i+1}: Assuming non-Comhaltas member ${competitorName} in competition ${competitionNumber}`);
+          }
         }
         if (competitorName in competitorNumberByName && competitorNumberByName[competitorName] !== membershipNo) {
           errors.push(`Row ${i+1}: Competitor ${competitorName} has multiple membership numbers: ${competitorNumberByName[competitorName]} and ${membershipNo} in competition ${competitionNumber}`);
@@ -218,7 +224,7 @@
         errors.push(`Row ${i+1}: Missing branch name or county for competitor ${competitorName} in competition ${competitionNumber}`);
       }
     }
-    return [errors, Object.keys(competitorNumberByName).length, Object.keys(competitionsByCompetitorName).length];
+    return [errors, warnings, Object.keys(competitorNumberByName).length, Object.keys(competitionsByCompetitorName).length];
   }
 
   function trim(s) {
@@ -228,22 +234,32 @@
     return typeof(s) == "string" ? s.trim() : s;
   }
 
-  function displayValidationResults(errors, numbers, names) {
+  function displayValidationResults(errors, warnings, numbers, names) {
     var resultsDiv = $('#results');
     resultsDiv.empty();
     if (errors.length === 0) {
-      resultsDiv.append(`<div class="bg-blue-100 border-t border-b border-blue-500 text-blue-700 px-4 py-3" role="alert"><p class="font-bold">Validation successful</p><p class="text-sm">Found ${numbers} membership numbers and ${names} competitor / group / band names.</p></div>`);
+      resultsDiv.append(`<div class="bg-green-100 border-t border-b border-green-500 text-green-700 px-4 py-3" role="alert"><p class="font-bold">Validation successful</p><p class="text-sm">Found ${numbers} membership numbers and ${names} competitor / group / band names.</p></div>`);
     } else {
 
+      // show errors
       var ul = $('<ul class="list-disc">');
       errors.forEach(function(error) {
         ul.append($('<li>').text(error));
       });
-      var alertDiv = $(`<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"><strong class="font-bold">Error</strong></div>`);
+      var alertDiv = $(`<div class="bg-red-100 border-t border-b border-red-400 text-red-700 px-4 py-3" role="alert"><strong class="font-bold">Errors</strong></div>`);
       alertDiv.append('<p>The following errors were found:</p>');
       alertDiv.append(ul);
       resultsDiv.append(alertDiv);
     }
+
+    // show warnings
+    var ul = $('<ul class="list-disc">');
+    warnings.forEach(function(warning) {
+      ul.append($('<li>').text(warning));
+    });
+    var alertDiv = $(`<div class="bg-blue-100 border-t border-b border-blue-400 text-blue-700 px-4 py-3" role="alert"><strong class="font-bold">Warnings</strong></div>`);
+    alertDiv.append(ul);
+    resultsDiv.append(alertDiv);
   }
 
   function displayCleanupResults(info) {

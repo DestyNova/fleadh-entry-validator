@@ -63,6 +63,10 @@
     });
   });
 
+  function isMultiEntryComp(competitionNumber) {
+    return (competitionNumber == 23 || competitionNumber == 24 || (competitionNumber >= 40 && competitionNumber <= 47));
+  }
+
   function cleanup(rows, filename) {
     var cleanedWorkbook = XLSX.utils.book_new();
     var cleanedSheet = {};
@@ -84,19 +88,20 @@
 
       var competitorName = row[3];
       var membershipNo = parseInt(row[8] || "#");
-      var noGrade = row[1];
+      var competitionCode = row[1];
       var competitionName = row[2];
       var branchName = row[5];
       var county = row[6];
       var country = row[7];
       var instrument = row[9];
-      var ageGrade = noGrade ? noGrade.charAt(noGrade.length - 1) : null;
-      var competitionNumber = parseInt((noGrade || "").slice(0,-1) || "0");
+      var ageGrade = competitionCode ? competitionCode.charAt(competitionCode.length - 1) : null;
+      var competitionNumber = parseInt((competitionCode || "").slice(0,-1) || "0");
 
       // row[0] means column A, row[1] is column B, etc.
+
       // if the competition code (column B) matches (2(3|4)(A|B|C|D)) or (4(0|1|2|3|4|5|6|7)(A|B|C|D|F|L)), then it will have multiple entries on the following lines.
       // if the competition code is non-blank and we have multiple entries and any the cells in columns E, F or G are blank, each blank cell should take its value from the same column cell in the next row.
-      if (/^2[34][ABCD]|4[01234567][ABCDFL]/.test(noGrade)) {
+      if (/^2[34][ABCD]|4[01234567][ABCDFL]/.test(competitionCode)) {
         for (var k = 4; k <= 6; k++) {
           if (row[k] === undefined || row[k] == "") {
             if (rows[i+1][2] == '1.') {
@@ -146,6 +151,7 @@
     var competitorNumberByName = {};
     var competitorsByCompetitionNumber = {};
     var competitionsByCompetitorName = {};
+    var currentCompetition = 0;
 
     for (var i = 2; i < rows.length; i++) {
       var row = rows[i];
@@ -155,30 +161,48 @@
       var competitorName = trim(row[3]);
       var isMember = "CCÉ" === trim(row[4]);
       var membershipNo = parseInt(trim(row[8]) || "#");
-      var noGrade = trim(row[1]);
+      var competitionCode = trim(row[1]);
       var competitionName = trim(row[2]);
       var branchName = trim(row[5]);
       var county = trim(row[6]);
       var country = trim(row[7]);
       var instrument = trim(row[9]);
-      var ageGrade = noGrade ? noGrade.charAt(noGrade.length - 1) : null;
-      var competitionNumber = parseInt(noGrade.slice(0,-1) || "0");
+      var ageGrade = competitionCode ? competitionCode.charAt(competitionCode.length - 1) : null;
+      var competitionNumber = parseInt(competitionCode.slice(0,-1) || "0");
+      let isBandOrGroup = competitionNumber >= 25 && competitionNumber <= 30;
 
-      if (competitionNumber >= 25 && competitionNumber <= 30 && (branchName !== '' || county !== '') && competitorName === '') {
-        errors.push(`Row ${i+1}: Found branch name or county for band or group, but no band/group name in competition ${competitionNumber}`);
+      if (country == "IE") {
+        errors.push(`Row ${i+1}: Country code should be omitted for IE entries`);
+      }
+
+      if (isBandOrGroup) {
+        let hasCountyOrBranch = branchName !== '' || county !== '';
+        let hasCompetitorName = competitorName !== '';
+
+        if (hasCountyOrBranch && !hasCompetitorName) {
+          errors.push(`Row ${i+1}: Found branch name or county for band or group, but no band/group name in competition ${competitionNumber}`);
+        }
+        if (hasCompetitorName && !hasCountyOrBranch) {
+          errors.push(`Row ${i+1}: Found band/group name, but no branch name or county in competition ${competitionNumber}`);
+        }
       }
 
       if (membershipNo > 0 && competitorName === '') {
         errors.push(`Row ${i+1}: Found membership number but no name in competition ${competitionNumber}`);
       }
 
-      // check duets and trios
-      if ((competitionNumber == 23 || competitionNumber == 24 || (competitionNumber >= 40 && competitionNumber <= 47)) && trim(rows[i+1][3]) !== "") {
-        for (var k = 4; k <= 6; k++) {
-          if (row[k] === undefined || row[k] == "") {
-            warnings.push(`Row ${i+1}: missing value in column ${String.fromCharCode(65+k)} for competition ${competitionNumber}`);
-          }
+      // check multi-entrant (duet, trio, set dancing) header rows
+      if (isMultiEntryComp(competitionNumber) && trim(rows[i+1][3]) !== "") {
+        if (branchName == "") {
+          errors.push(`Row ${i+1}: missing branch name for competition ${competitionCode}`);
         }
+        if (county == "") {
+          errors.push(`Row ${i+1}: missing county for competition ${competitionCode}`);
+        }
+      }
+
+      if (competitionNumber != 0) {
+        currentCompetition = competitionNumber;
       }
 
       // Skip this row if it looks like a blank entry
@@ -186,19 +210,37 @@
         continue;
       }
 
-      competitorsByCompetitionNumber[competitionNumber] = competitorsByCompetitionNumber[competitionNumber] || {};
-      competitionsByCompetitorName[competitorName] = competitionsByCompetitorName[competitorName] || {};
+      // reject if instrument missing and needed
+      if ([14,15,23,24].includes(currentCompetition) && instrument == "") {
+        console.log(`current comp: ${currentCompetition}`);
+        errors.push(`Row ${i+1}: instrument must be specified in competition ${competitionCode}.`);
+      }
+
+      // check multi-entrant (duet, trio, set dancing) individual rows
+      if (competitionNumber == 0 && isMultiEntryComp(currentCompetition)) {
+        // reject if cols E-H are filled
+        if ([row[4], row[5], row[6], row[7]].map(s => trim(s)).join("") != "") {
+          errors.push(`Row ${i+1}: CCÉ, branch name, county and country should be left blank for individuals in competition ${currentCompetition}. These values should be specified in the row before the first competitor.`);
+        }
+      }
 
       if (competitionNumber == 0 && !/^[12345678]\.$/.test(competitionName)) {
         errors.push(`Row ${i+1}: Competition code missing or invalid for competitor ${competitorName} for competition name: ${competitionName}`);
       }
 
-      if (competitionNumber > 0 && (competitionNumber < 23 || competitionNumber > 30)) { // skip this check for duets / trios...
+      // for individual competitions, cross-reference names and competition codes to ensure
+      // the same person isn't entered in two different age groups for the same competition
+      if(!isMultiEntryComp(currentCompetition) && !isBandOrGroup) {
+        competitorsByCompetitionNumber[competitionNumber] = competitorsByCompetitionNumber[competitionNumber] || {};
+        competitionsByCompetitorName[competitorName] = competitionsByCompetitorName[competitorName] || {};
+      }
+
+      if (competitionNumber > 0 && !isMultiEntryComp(currentCompetition) && !isBandOrGroup) {
         if (isNaN(membershipNo) && ageGrade !== 'M') {
           if (isMember) {
-            errors.push(`Row ${i+1}: Membership number missing or invalid for competitor ${competitorName} in competition ${competitionNumber}`);
+            errors.push(`Row ${i+1}: Membership number missing or invalid for competitor ${competitorName} in competition ${competitionCode}`);
           } else {
-            warnings.push(`Row ${i+1}: Assuming non-Comhaltas member ${competitorName} in competition ${competitionNumber}`);
+            warnings.push(`Row ${i+1}: Assuming non-Comhaltas member ${competitorName} in competition ${competitionCode}`);
           }
         }
         if (competitorName in competitorNumberByName && competitorNumberByName[competitorName] !== membershipNo) {

@@ -49,8 +49,8 @@
           var sheetName = workbook.SheetNames[0];
           var sheet = workbook.Sheets[sheetName];
           var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
-          var [errors,warnings,numbers,names] = validateSpreadsheet(rows);
-          displayValidationResults(errors, warnings, numbers, names);
+          var [errors,warnings,numbers,names,feeClasses] = validateSpreadsheet(rows);
+          displayValidationResults(errors, warnings, numbers, names, feeClasses);
 
           $('#cleanup').enable;
           $('#cleanup').off('click').click(function() {
@@ -62,6 +62,17 @@
       }
     });
   });
+
+  const FEES = {
+    "BAND": 15,
+    "GROUP": 20,
+    "DANCING": 20,
+    "U18": 2,
+    "O18": 4,
+    "U18_NONMEMBER": 10,
+    "O18_NONMEMBER": 20,
+    "BRANCH_CONTRIBUTION": 500
+  };
 
   function isMultiEntryComp(competitionNumber) {
     return (competitionNumber == 23 || competitionNumber == 24 || (competitionNumber >= 40 && competitionNumber <= 47));
@@ -152,6 +163,8 @@
     var competitorsByCompetitionNumber = {};
     var competitionsByCompetitorName = {};
     var currentCompetition = 0;
+    var currentAgeGrade = "";
+    var [bandEntries, groupEntries, dancingEntries, u18Members, o18Members, u18NonMembers, o18NonMembers] = [0, 0, 0, 0, 0, 0, 0];
 
     for (var i = 2; i < rows.length; i++) {
       var row = rows[i];
@@ -161,6 +174,7 @@
       var competitorName = trim(row[3]);
       var isMember = "CCÉ" === trim(row[4]);
       var membershipNo = parseInt(trim(row[8]) || "#");
+      var hasMembershipNumber = !isNaN(membershipNo);
       var competitionCode = trim(row[1]);
       var competitionName = trim(row[2]);
       var branchName = trim(row[5]);
@@ -187,7 +201,7 @@
         }
       }
 
-      if (membershipNo > 0 && competitorName === '') {
+      if (membershipNo > 0 && competitorName === "") {
         errors.push(`Row ${i+1}: Found membership number but no name in competition ${competitionNumber}`);
       }
 
@@ -203,6 +217,7 @@
 
       if (competitionNumber != 0) {
         currentCompetition = competitionNumber;
+        currentAgeGrade = ageGrade;
       }
 
       // Skip this row if it looks like a blank entry
@@ -212,7 +227,6 @@
 
       // reject if instrument missing and needed
       if ([14,15,23,24].includes(currentCompetition) && instrument == "") {
-        console.log(`current comp: ${currentCompetition}`);
         errors.push(`Row ${i+1}: instrument must be specified in competition ${competitionCode}.`);
       }
 
@@ -230,13 +244,13 @@
 
       // for individual competitions, cross-reference names and competition codes to ensure
       // the same person isn't entered in two different age groups for the same competition
-      if(!isMultiEntryComp(currentCompetition) && !isBandOrGroup) {
+      if (!isMultiEntryComp(currentCompetition) && !isBandOrGroup) {
         competitorsByCompetitionNumber[competitionNumber] = competitorsByCompetitionNumber[competitionNumber] || {};
         competitionsByCompetitorName[competitorName] = competitionsByCompetitorName[competitorName] || {};
       }
 
       if (competitionNumber > 0 && !isMultiEntryComp(currentCompetition) && !isBandOrGroup) {
-        if (isNaN(membershipNo) && ageGrade !== 'M') {
+        if (isNaN(membershipNo) && ageGrade !== "M") {
           if (isMember) {
             errors.push(`Row ${i+1}: Membership number missing or invalid for competitor ${competitorName} in competition ${competitionCode}`);
           } else {
@@ -245,7 +259,7 @@
         }
         if (competitorName in competitorNumberByName && competitorNumberByName[competitorName] !== membershipNo) {
           errors.push(`Row ${i+1}: Competitor ${competitorName} has multiple membership numbers: ${competitorNumberByName[competitorName]} and ${membershipNo} in competition ${competitionNumber}`);
-        } else if (!isNaN(membershipNo)) {
+        } else if (hasMembershipNumber) {
           competitorNumberByName[competitorName] = membershipNo;
         }
 
@@ -262,11 +276,44 @@
         }
       }
 
-      if (competitionNumber > 0 && (branchName === '' || county === '')) {
+      if (competitionNumber > 0 && (branchName === "" || county === "")) {
         errors.push(`Row ${i+1}: Missing branch name or county for competitor ${competitorName} in competition ${competitionNumber}`);
       }
+
+      // calculate fee for band / group
+      let bandEntry = currentCompetition == 25 ? 1 : 0;
+      let groupEntry = currentCompetition >= 26 && currentCompetition <= 30 ? 1 : 0;
+      let dancingEntry = 0 // currentCompetition >= 40 && currentCompetition <= 47 ? 1 : 0; // TODO: verify this; maybe it should be on individual basis?
+      bandEntries += bandEntry;
+      groupEntries += groupEntry;
+      dancingEntries += dancingEntry;
+
+      // calculate fee for solo, duet and trio competitor
+      if (bandEntry + groupEntry + dancingEntry == 0) {
+        if (hasMembershipNumber) {
+          if ("ABCEFGHIJKM".includes(currentAgeGrade)) {
+            u18Members += 1;
+          } else if ("DL".includes(currentAgeGrade)) {
+            o18Members += 1;
+          } else {
+            errors.push(`Row ${i+1}: Invalid age grade: ${currentAgeGrade}`);
+          }
+        } else {
+          console.log(`non-member: ${competitorName}, row ${i+1}`);
+          if ("ABCEFGHIJKM".includes(currentAgeGrade)) {
+            u18NonMembers += 1;
+          } else if ("DL".includes(currentAgeGrade)) {
+            o18NonMembers += 1;
+          } else {
+            errors.push(`Row ${i+1}: Invalid age grade: ${currentAgeGrade}`);
+          }
+        }
+      }
     }
-    return [errors, warnings, Object.keys(competitorNumberByName).length, Object.keys(competitionsByCompetitorName).length];
+
+    let feeClasses = [bandEntries, groupEntries, dancingEntries, u18Members, o18Members, u18NonMembers, o18NonMembers];
+    console.log(["competitorNumberByName",competitorNumberByName]);
+    return [errors, warnings, Object.keys(competitorNumberByName).length, Object.keys(competitionsByCompetitorName).length, feeClasses];
   }
 
   function trim(s) {
@@ -276,11 +323,40 @@
     return typeof(s) == "string" ? s.trim() : s;
   }
 
-  function displayValidationResults(errors, warnings, numbers, names) {
+  function showFees(feeClasses) {
+    let [bandEntries, groupEntries, dancingEntries, u18Members, o18Members, u18NonMembers, o18NonMembers] = feeClasses;
+    var s = "";
+    var fees = []
+
+    fees.push(bandEntries * FEES.BAND);
+    s += `<p>Bands: ${bandEntries} x €${FEES.BAND} = €${fees.slice(-1)}</p>`;
+    fees.push(groupEntries * FEES.GROUP);
+    s += `<p>Groups: ${groupEntries} x €${FEES.GROUP} = €${fees.slice(-1)}</p>`;
+
+    /* TODO: sort out dancing fees
+    fees.push(dancingEntries * FEES.DANCING);
+    s += `<p>Dancing: ${dancingEntries} x €${FEES.DANCING} = €${fees.slice(-1)}</p>`;
+    */
+    fees.push(u18Members * FEES.U18);
+    s += `<p>Under 18 entries: ${u18Members} x €${FEES.U18} = €${fees.slice(-1)}</p>`;
+    fees.push(o18Members * FEES.O18);
+    s += `<p>Over 18 entries: ${o18Members} x €${FEES.O18} = €${fees.slice(-1)}</p>`;
+    fees.push(u18NonMembers * FEES.U18_NONMEMBER);
+    s += `<p>Non-member under 18 entries: ${u18NonMembers} x €${FEES.U18_NONMEMBER} = €${fees.slice(-1)}</p>`;
+    fees.push(o18NonMembers * FEES.O18_NONMEMBER);
+    s += `<p>Non-member over 18 entries: ${o18NonMembers} x €${FEES.O18_NONMEMBER} = €${fees.slice(-1)}</p>`;
+    let total = fees.reduce((total, fee) => total + fee);
+    s += `<p><b>Entry fees: €${total}</b></p>`;
+    s += `<p><b>Fleadh contribution: €${FEES.BRANCH_CONTRIBUTION}</b></p>`;
+    s += `<p><b>Total due: €${total + FEES.BRANCH_CONTRIBUTION}</b></p>`;
+    return s;
+  }
+
+  function displayValidationResults(errors, warnings, numbers, names, feeClasses) {
     var resultsDiv = $('#results');
     resultsDiv.empty();
     if (errors.length === 0) {
-      resultsDiv.append(`<div class="bg-green-100 border-t border-b border-green-500 text-green-700 px-4 py-3" role="alert"><p class="font-bold">Validation successful</p><p class="text-sm">Found ${numbers} membership numbers and ${names} competitor / group / band names.</p></div>`);
+      resultsDiv.append(`<div class="bg-green-100 border-t border-b border-green-500 text-green-700 px-4 py-3" role="alert"><p class="font-bold">Validation successful</p><p>Found ${numbers} membership numbers and ${names} competitor / group / band names.</p><br>${showFees(feeClasses)}</div>`);
     } else {
 
       // show errors

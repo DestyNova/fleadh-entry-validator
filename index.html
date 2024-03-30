@@ -258,7 +258,7 @@
           }
         }
         if (competitorName in competitorNumberByName && competitorNumberByName[competitorName] !== membershipNo) {
-          errors.push(`Row ${i+1}: Competitor ${competitorName} has multiple membership numbers: ${competitorNumberByName[competitorName]} and ${membershipNo} in competition ${competitionNumber}`);
+          errors.push(`Row ${i+1}: Competitor ${competitorName} has multiple membership numbers: ${competitorNumberByName[competitorName]} and ${membershipNo}`);
         } else if (hasMembershipNumber) {
           competitorNumberByName[competitorName] = membershipNo;
         }

@@ -24,10 +24,10 @@
         <form id="upload-form" class="mb-4">
           <div class="mb-4">
             <label for="file-input" class="block text-gray-700 font-bold mb-2">Upload Excel spreadsheet (.xls, .xlsx)</label>
-            <input type="file" class="form-control-file" id="file-input">
+            <input type="file" multiple class="form-control-file" id="file-input">
           </div>
           <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mb-2">Validate</button>
-          <button type="button" id="cleanup" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mb-2">Preprocess</button>
+          <button type="button" id="merge" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded mb-2">Merge</button>
         </form>
         <div id="results" />
       </div>
@@ -47,8 +47,14 @@
     $('#upload-form').submit(function(event) {
       event.preventDefault();
       var files = $('#file-input')[0].files;
-      if (files.length > 0) {
-        const filename = files[0].name.split('.')[0];
+      console.log(files);
+
+      var allRows = [];
+      var resultsDiv = $('#results');
+      resultsDiv.empty();
+
+      for (var i = 0; i < files.length; i++) {
+        const filename = files[i].name.split('.')[0];
         var fileReader = new FileReader();
         fileReader.onload = function(event) {
           var data = new Uint8Array(event.target.result);
@@ -57,16 +63,27 @@
           var sheet = workbook.Sheets[sheetName];
           var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
           var [errors,warnings,numbers,names,feeClasses] = validateSpreadsheet(rows);
-          displayValidationResults(errors, warnings, numbers, names, feeClasses);
+          displayValidationResults(filename, errors, warnings, numbers, names, feeClasses);
 
-          $('#cleanup').enable;
-          $('#cleanup').off('click').click(function() {
-            var messages = cleanup(rows, filename);
-            displayCleanupResults(messages);
-          });
+          console.log(errors);
+          if (errors.length == 0) {
+            // looks good, add the rows for later
+            console.log("pushing rows");
+            allRows.push(rows);
+          }
+
         };
-        fileReader.readAsArrayBuffer(files[0]);
+        fileReader.readAsArrayBuffer(files[i]);
       }
+
+      $('#merge').enable;
+      $('#merge').off('click').click(function() {
+        if (allRows.length > 0) {
+          console.log("all rows", allRows);
+        }
+        var messages = merge(allRows);
+        displayMergeResults(messages);
+      });
     });
   });
 
@@ -85,72 +102,60 @@
     return (competitionNumber == 23 || competitionNumber == 24 || (competitionNumber >= 40 && competitionNumber <= 47));
   }
 
-  function cleanup(rows, filename) {
+  function merge(allRows) {
     var cleanedWorkbook = XLSX.utils.book_new();
     var cleanedSheet = {};
     var messages = [];
 
-    XLSX.utils.sheet_add_aoa(cleanedSheet, [rows[0]], { origin: "A1" });
-    XLSX.utils.sheet_add_aoa(cleanedSheet, [rows[1]], { origin: "A2" });
+    XLSX.utils.sheet_add_aoa(cleanedSheet, [allRows[0][0]], { origin: "A1" });
+    XLSX.utils.sheet_add_aoa(cleanedSheet, [allRows[0][1]], { origin: "A2" });
 
-    for (var i = 2; i < rows.length; i++) {
-      var row = rows[i];
-      if (!row) {
-        continue;
-      }
+    outputIndex = 2;
 
-      // for every string-valued cell, trim its value
-      for (var j = 0; j < row.length; j++) {
-        row[j] = trim(row[j]);
-      }
-
-      var competitorName = row[3];
-      var membershipNo = parseInt(row[8] || "#");
-      var competitionCode = row[1];
-      var competitionName = row[2];
-      var branchName = row[5];
-      var county = row[6];
-      var country = row[7];
-      var instrument = row[9];
-      var ageGrade = competitionCode ? competitionCode.charAt(competitionCode.length - 1) : null;
-      var competitionNumber = parseInt((competitionCode || "").slice(0,-1) || "0");
-
-      // row[0] means column A, row[1] is column B, etc.
-
-      // if the competition code (column B) matches (2(3|4)(A|B|C|D)) or (4(0|1|2|3|4|5|6|7)(A|B|C|D|F|L)), then it will have multiple entries on the following lines.
-      // if the competition code is non-blank and we have multiple entries and any the cells in columns E, F or G are blank, each blank cell should take its value from the same column cell in the next row.
-      if (/^2[34][ABCD]|4[01234567][ABCDFL]/.test(competitionCode)) {
-        for (var k = 4; k <= 6; k++) {
-          if (row[k] === undefined || row[k] == "") {
-            if (rows[i+1][2] == '1.') {
-              const missing = trim(rows[i+1][k]);
-              if (missing !== undefined && missing != "") {
-                row[k] = missing;
-                messages.push(`[INFO] Row ${i+1} missing value in column ${String.fromCharCode(65+k)}; replaced with value from next row: ${row[k]}`);
-              }
-            } else {
-              messages.push(`[ERROR] Row ${i+1} missing value in column ${String.fromCharCode(65+k)}. Couldn't find first competitor on next row.`);
-            }
-          }
+    for (var source = 0; source < allRows.length; source++) {
+      let rows = allRows[source];
+      for (var i = 2; i < rows.length; i++) {
+        var row = rows[i];
+        if (!row) {
+          continue;
         }
-      }
-      // if the county (column G) is non-blank and its trimmed value matches (.*Cliath|BAC|BÁC|Dublin), replace it with Átha Cliath.
-      county = row[6]; // update in case we changed it in the previous step
-      if (/.*(Cliath|Chliath|BAC|BÁC|Dublin)/.test(county)) {
-        row[6] = "Átha Cliath";
-      }
-      // if instrument (column J) is non-blank, replace it with its trimmed title-cased value.
-      if (instrument != "") {
-        row[9] = toTitleCase(instrument);
-      }
-      // if the row has a non-blank membership number (column I), it should be replaced with its parsed numeric value (if it can be parsed successfully, otherwise it should report an error)
 
-      // write back the row
-      XLSX.utils.sheet_add_aoa(cleanedSheet, [row], { origin: `A${i+1}` });
+        // for every string-valued cell, trim its value
+        for (var j = 0; j < row.length; j++) {
+          row[j] = trim(row[j]);
+        }
+
+        var competitorName = row[3];
+        var membershipNo = parseInt(row[8] || "#");
+        var competitionCode = row[1];
+        var competitionName = row[2];
+        var branchName = row[5];
+        var county = row[6];
+        var country = row[7];
+        var instrument = row[9];
+        var ageGrade = competitionCode ? competitionCode.charAt(competitionCode.length - 1) : null;
+        var competitionNumber = parseInt((competitionCode || "").slice(0,-1) || "0");
+
+        // row[0] means column A, row[1] is column B, etc.
+
+        // if the county (column G) is non-blank and its trimmed value matches (.*Cliath|BAC|BÁC|Dublin), replace it with Átha Cliath.
+        county = row[6]; // update in case we changed it in the previous step
+        if (/.*(Cliath|Chliath|BAC|BÁC|Dublin)/.test(county)) {
+          row[6] = "Áth Cliath";
+        }
+        // if instrument (column J) is non-blank, replace it with its trimmed title-cased value.
+        if (instrument != "") {
+          row[9] = toTitleCase(instrument);
+        }
+        // if the row has a non-blank membership number (column I), it should be replaced with its parsed numeric value (if it can be parsed successfully, otherwise it should report an error)
+
+        // write back the row
+        XLSX.utils.sheet_add_aoa(cleanedSheet, [row], { origin: `A${++outputIndex}` });
+      }
     }
 
     XLSX.utils.book_append_sheet(cleanedWorkbook, cleanedSheet, "Entries");
-    var cleanedData = XLSX.writeFile(cleanedWorkbook, `cleaned-${filename}.xls`, { cellDates: true, type: "binary" });
+    var cleanedData = XLSX.writeFile(cleanedWorkbook, `cleaned-entries.xls`, { cellDates: true, type: "binary" });
     return messages;
   }
 
@@ -213,12 +218,17 @@
       }
 
       // check multi-entrant (duet, trio, set dancing) header rows
-      if (isMultiEntryComp(competitionNumber) && trim(rows[i+1][3]) !== "") {
-        if (branchName == "") {
-          errors.push(`Row ${i+1}: missing branch name for competition ${competitionCode}`);
-        }
-        if (county == "") {
-          errors.push(`Row ${i+1}: missing county for competition ${competitionCode}`);
+      if (isMultiEntryComp(competitionNumber)) {
+        let hasCompetitors = trim(rows[i+1][3]) != "";
+        if ((branchName != "" || county != "") && !hasCompetitors) {
+          errors.push(`Row ${i+1}: competition ${competitionCode} has an entry with blank competitor name(s)`);
+        } else if (hasCompetitors) {
+          if (branchName == "") {
+            errors.push(`Row ${i+1}: missing branch name for competition ${competitionCode}`);
+          }
+          if (county == "") {
+            errors.push(`Row ${i+1}: missing county for competition ${competitionCode}`);
+          }
         }
       }
 
@@ -359,9 +369,10 @@
     return s;
   }
 
-  function displayValidationResults(errors, warnings, numbers, names, feeClasses) {
+  function displayValidationResults(filename, errors, warnings, numbers, names, feeClasses) {
     var resultsDiv = $('#results');
-    resultsDiv.empty();
+    resultsDiv.append(`<p class="font-bold">${filename}</p>`);
+
     if (errors.length === 0) {
       resultsDiv.append(`<div class="bg-green-100 border-t border-b border-green-500 text-green-700 px-4 py-3" role="alert"><p class="font-bold">Validation successful</p><p>Found ${numbers} membership numbers and ${names} competitor / group / band names.</p><br>${showFees(feeClasses)}</div>`);
     } else {
@@ -387,9 +398,9 @@
     resultsDiv.append(alertDiv);
   }
 
-  function displayCleanupResults(info) {
+  function displayMergeResults(info) {
     var resultsDiv = $('#results');
-    var res = $(`<div class="bg-blue-100 border-t border-b border-blue-500 text-blue-700 px-4 py-3" role="alert"><p class="font-bold">Cleanup successful</p></div>`);
+    var res = $(`<div class="bg-blue-100 border-t border-b border-blue-500 text-blue-700 px-4 py-3" role="alert"><p class="font-bold">Merge successful</p></div>`);
     resultsDiv.empty();
     resultsDiv.append(res);
 

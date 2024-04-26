@@ -26,8 +26,19 @@
             <label for="file-input" class="block text-gray-700 font-bold mb-2">Upload Excel spreadsheet (.xls, .xlsx)</label>
             <input type="file" multiple class="form-control-file" id="file-input">
           </div>
-          <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mb-2">Validate</button>
-          <button type="button" id="merge" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded mb-2">Merge</button>
+
+          <div class="mb-4">
+            <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mb-2">Validate</button>
+          </div>
+
+          <div class="p-4 rounded-md border-dotted border-sky-400 border-2">
+            <h5 class="text-lg font-bold mb-2">Admin tools</h5>
+            <p>
+              <button type="button" id="merge" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded mb-2">Merge</button>
+              <button type="button" id="nonmembers" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded mb-2">Sheet converter: non-members</button>
+              <button type="button" id="members" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded mb-2">Sheet converter: members</button>
+            </p>
+          </div>
         </form>
         <div id="results" />
       </div>
@@ -82,8 +93,35 @@
           console.log("all rows", allRows);
         }
         var messages = merge(allRows);
-        displayMergeResults(messages);
+        displayResults("Merge", messages);
       });
+
+    });
+
+    // conversions from Google Sheet
+    $('#nonmembers').enable;
+    $('#nonmembers').off('click').click(function() {
+      var files = $('#file-input')[0].files;
+      var resultsDiv = $('#results');
+      resultsDiv.empty();
+
+      onSheetLoad(files[0], (filename, rows) => {
+        var messages = convertNonMembers(filename, rows);
+        displayResults("Non-member spreadsheet conversion", messages);
+      });
+    });
+
+    $('#members').enable;
+    $('#members').off('click').click(function() {
+      var files = $('#file-input')[0].files;
+      var resultsDiv = $('#results');
+      resultsDiv.empty();
+
+      onSheetLoad(files[0], (filename, rows) => {
+        var messages = convertMembers(filename, rows);
+        displayResults("Member spreadsheet conversion", messages);
+      });
+
     });
   });
 
@@ -97,6 +135,229 @@
     "O18_NONMEMBER": 20,
     "BRANCH_CONTRIBUTION": 500
   };
+
+  const COMPETITION_CODES = {
+    "10A": "Bainseó / Banjo, Faoi 12",
+    "10B": "Bainseó / Banjo, 12-15",
+    "10C": "Bainseó / Banjo, 15-18",
+    "10D": "Bainseó / Banjo, O18",
+    "11A": "Maindilín / Mandolin, Faoi 12",
+    "11B": "Maindilín / Mandolin, 12-15",
+    "11C": "Maindilín / Mandolin, 15-18",
+    "11D": "Maindilín / Mandolin, O18",
+    "11M": "Maindilín / Mandolin, Faoi 10",
+    "12A": "Pianó / Piano, Faoi 12",
+    "12B": "Pianó / Piano, 12-15",
+    "12C": "Pianó / Piano, 15-18",
+    "12D": "Pianó / Piano, O18",
+    "13A": "Mileoidean / Melodeon, Faoi 12",
+    "13B": "Mileoidean / Melodeon, 12-15",
+    "13C": "Mileoidean / Melodeon, 15-18",
+    "13D": "Mileoidean / Melodeon, O18",
+    "14A": "Rogha Gléas / Miscellaneous, Faoi 12",
+    "14B": "Rogha Gléas / Miscellaneous, 12-15",
+    "14C": "Rogha Gléas / Miscellaneous, 15-18",
+    "14D": "Rogha Gléas / Miscellaneous, O18",
+    "15A": "Tionlacan / Accompaniment, Faoi 12",
+    "15B": "Tionlacan / Accompaniment, 12-15",
+    "15C": "Tionlacan / Accompaniment, 15-18",
+    "15D": "Tionlacan / Accompaniment, O18",
+    "16A": "Bodhrán, Faoi 12",
+    "16B": "Bodhrán, 12-15",
+    "16C": "Bodhrán, 15-18",
+    "16D": "Bodhrán, O18",
+    "16M": "Bodhrán, Faoi 10",
+    "17A": "Drumaí Céilí / Céilí Drums, Faoi 12",
+    "17B": "Drumaí Céilí / Céilí Drums, 12-15",
+    "17C": "Drumaí Céilí / Céilí Drums, 15-18",
+    "17D": "Drumaí Céilí / Céilí Drums, O18",
+    "18A": "Foinn Mhalla, Fidil / Fiddle Slow Airs, Faoi 12",
+    "18B": "Foinn Mhalla, Fidil / Fiddle Slow Airs, 12-15",
+    "18C": "Foinn Mhalla, Fidil / Fiddle Slow Airs, 15-18",
+    "18D": "Foinn Mhalla, Fidil / Fiddle Slow Airs, O18",
+    "19A": "Foinn Mhalla, Píb Uilleann / Uilleann Pipes Slow Airs, Faoi 12",
+    "19B": "Foinn Mhalla, Píb Uilleann / Uilleann Pipes Slow Airs, 12-15",
+    "19C": "Foinn Mhalla, Píb Uilleann / Uilleann Pipes Slow Airs, 15-18",
+    "19D": "Foinn Mhalla, Píb Uilleann / Uilleann Pipes Slow Airs, O18",
+    "1A": "Fidil / Fiddle, Faoi 12",
+    "1B": "Fidil / Fiddle, 12-15",
+    "1C": "Fidil / Fiddle, 15-18",
+    "1D": "Fidil / Fiddle, O18",
+    "1M": "Fidil / Fiddle, Faoi 10",
+    "20A": "Foinn Mhalla, Feadóg Mhór / Flute Slow Airs, Faoi 12",
+    "20B": "Foinn Mhalla, Feadóg Mhór / Flute Slow Airs, 12-15",
+    "20C": "Foinn Mhalla, Feadóg Mhór / Flute Slow Airs, 15-18",
+    "20D": "Foinn Mhalla, Feadóg Mhór / Flute Slow Airs, O18",
+    "21A": "Foinn Mhalla, Feadóg / Whistle Slow Airs, Faoi 12",
+    "21B": "Foinn Mhalla, Feadóg / Whistle Slow Airs, 12-15",
+    "21C": "Foinn Mhalla, Feadóg / Whistle Slow Airs, 15-18",
+    "21D": "Foinn Mhalla, Feadóg / Whistle Slow Airs, O18",
+    "22A": "Foinn Mhalla, Cruit / Harp Slow Airs, Faoi 12",
+    "22B": "Foinn Mhalla, Cruit / Harp Slow Airs, 12-15",
+    "22C": "Foinn Mhalla, Cruit / Harp Slow Airs, 15-18",
+    "22D": "Foinn Mhalla, Cruit / Harp Slow Airs, O18",
+    "23A": "Ceol Beirte / Duets, Faoi 12",
+    "23B": "Ceol Beirte / Duets, 12-15",
+    "23C": "Ceol Beirte / Duets, 15-18",
+    "23D": "Ceol Beirte / Duets, O18",
+    "24A": "Ceol Trír / Trios, Faoi 12",
+    "24B": "Ceol Trír / Trios, 12-15",
+    "24C": "Ceol Trír / Trios, 15-18",
+    "24D": "Ceol Trír / Trios, O18",
+    "25A": "Bannaí Céilí / Céili Band, Faoi 12",
+    "25B": "Bannaí Céilí / Céili Band, 12-15",
+    "25C": "Bannaí Céilí / Céili Band, 15-18",
+    "25D": "Bannaí Céilí / Céili Band, O18",
+    "26A": "Grúpaí Ceoil, Faoi 12",
+    "26B": "Grúpaí Ceoil, 12-15",
+    "26C": "Grúpaí Ceoil, 15-18",
+    "26D": "Grúpaí Ceoil, O18",
+    "27D": "Bannaí Máirseála, Cairdín / Accordion Marching Bands, O18",
+    "27F": "Bannaí Máirseála, Cairdín / Accordion Marching Bands, Faoi 18",
+    "28D": "Bannaí Máirseála, Feadóg Mhór / Flute Marching Bands, O18",
+    "28F": "Bannaí Máirseála, Feadóg Mhór / Flute Marching Bands, Faoi 18",
+    "29D": "Bannaí Máirseála, Rogha Ghléas / Miscellaneous Marching Bands, O18",
+    "29F": "Bannaí Máirseála, Rogha Ghléas / Miscellaneous Marching Bands, Faoi 18",
+    "2A": "Bosca Ceoil / Button Accordion, Faoi 12",
+    "2B": "Bosca Ceoil / Button Accordion, 12-15",
+    "2C": "Bosca Ceoil / Button Accordion, 15-18",
+    "2D": "Bosca Ceoil / Button Accordion, O18",
+    "2M": "Bosca Ceoil / Button Accordion, Faoi 10",
+    "30E": "Bannaí Máirseála, Píb / Pipe Marching Bands, Aon Aois/Any Age",
+    "31A": "Amhránaíocht ar an Sean Nós (Mná) / Irish Singing (Ladies), Faoi 12",
+    "31B": "Amhránaíocht ar an Sean Nós (Mná) / Irish Singing (Ladies), 12-15",
+    "31C": "Amhránaíocht ar an Sean Nós (Mná) / Irish Singing (Ladies), 15-18",
+    "31D": "Amhránaíocht ar an Sean Nós (Mná) / Irish Singing (Ladies), O18",
+    "31M": "Amhránaíocht ar an Sean Nós (Mná) / Irish Singing (Ladies), Faoi 10",
+    "32A": "Amhránaíocht ar an Sean Nós (Fir) / Irish Singing (Men), Faoi 12",
+    "32B": "Amhránaíocht ar an Sean Nós (Fir) / Irish Singing (Men), 12-15",
+    "32C": "Amhránaíocht ar an Sean Nós (Fir) / Irish Singing (Men), 15-18",
+    "32D": "Amhránaíocht ar an Sean Nós (Fir) / Irish Singing (Men), O18",
+    "32M": "Amhránaíocht ar an Sean Nós (Fir) / Irish Singing (Men), Faoi 10",
+    "33A": "English Singing (Ladies) / Amhráin Bhéarla (Mná), Faoi 12",
+    "33B": "English Singing (Ladies) / Amhráin Bhéarla (Mná), 12-15",
+    "33C": "English Singing (Ladies) / Amhráin Bhéarla (Mná), 15-18",
+    "33D": "English Singing (Ladies) / Amhráin Bhéarla (Mná), O18",
+    "33M": "English Singing (Ladies) / Amhráin Bhéarla (Mná), Faoi 10",
+    "34A": "English Singing (Men) / Amhráin Bhéarla (Fir), Faoi 12",
+    "34B": "English Singing (Men) / Amhráin Bhéarla (Fir), 12-15",
+    "34C": "English Singing (Men) / Amhráin Bhéarla (Fir), 15-18",
+    "34D": "English Singing (Men) / Amhráin Bhéarla (Fir), O18",
+    "34M": "English Singing (Men) / Amhráin Bhéarla (Fir), Faoi 10",
+    "35A": "Feadaíl / Whistling, Faoi 12",
+    "35B": "Feadaíl / Whistling, 12-15",
+    "35C": "Feadaíl / Whistling, 15-18",
+    "35D": "Feadaíl / Whistling, O18",
+    "36A": "Portaireacht / Lilting, Faoi 12",
+    "36B": "Portaireacht / Lilting, 12-15",
+    "36C": "Portaireacht / Lilting, 15-18",
+    "36D": "Portaireacht / Lilting, O18",
+    "37E": "Amhráin Nuacheaptha, Gaeilge / Newly Composed Songs in Irish, Aon Aois/Any Age",
+    "38E": "Newly Composed Songs in English / Amhráin Nuacheaptha, Béarla, Aon Aois/Any Age",
+    "39E": "Píosaí Ceoil Nuacheaptha / Newly Composed Tunes, Aon Aois/Any Age",
+    "3A": "Feadóg Mhór / Flute, Faoi 12",
+    "3B": "Feadóg Mhór / Flute, 12-15",
+    "3C": "Feadóg Mhór / Flute, 15-18",
+    "3D": "Feadóg Mhór / Flute, O18",
+    "40A": "Rince Céilí Ochtair, Mná / 8-Hand Céilí Dancing, Ladies, Faoi 12",
+    "40B": "Rince Céilí Ochtair, Mná / 8-Hand Céilí Dancing, Ladies, 12-15",
+    "40C": "Rince Céilí Ochtair, Mná / 8-Hand Céilí Dancing, Ladies, 15-18",
+    "40D": "Rince Céilí Ochtair, Mná / 8-Hand Céilí Dancing, Ladies, O18",
+    "41A": "Rince Céilí Ochtair, Measctha / 8-Hand Céilí Dancing, Mixed, Faoi 12",
+    "41B": "Rince Céilí Ochtair, Measctha / 8-Hand Céilí Dancing, Mixed, 12-15",
+    "41C": "Rince Céilí Ochtair, Measctha / 8-Hand Céilí Dancing, Mixed, 15-18",
+    "41D": "Rince Céilí Ochtair, Measctha / 8-Hand Céilí Dancing, Mixed, O18",
+    "42A": "Rince Céilí Ceathrair, Mná / 4-Hand Céilí Dancing, Ladies, Faoi 12",
+    "42B": "Rince Céilí Ceathrair, Mná / 4-Hand Céilí Dancing, Ladies, 12-15",
+    "42C": "Rince Céilí Ceathrair, Mná / 4-Hand Céilí Dancing, Ladies, 15-18",
+    "42D": "Rince Céilí Ceathrair, Mná / 4-Hand Céilí Dancing, Ladies, O18",
+    "43A": "Rince Céilí Ceathrair, Measctha / 4-Hand Céilí Dancing, Mixed, Faoi 12",
+    "43B": "Rince Céilí Ceathrair, Measctha / 4-Hand Céilí Dancing, Mixed, 12-15",
+    "43C": "Rince Céilí Ceathrair, Measctha / 4-Hand Céilí Dancing, Mixed, 15-18",
+    "43D": "Rince Céilí Ceathrair, Measctha / 4-Hand Céilí Dancing, Mixed, O18",
+    "44A": "Rince Seit, Mná / Full Set, Ladies, Faoi 12",
+    "44B": "Rince Seit, Mná / Full Set, Ladies, 12-15",
+    "44C": "Rince Seit, Mná / Full Set, Ladies, 15-18",
+    "44D": "Rince Seit, Mná / Full Set, Ladies, O18",
+    "45A": "Rince Seit, Measctha / Full Set, Mixed, Faoi 12",
+    "45B": "Rince Seit, Measctha / Full Set, Mixed, 12-15",
+    "45C": "Rince Seit, Measctha / Full Set, Mixed, 15-18",
+    "45D": "Rince Seit, Measctha / Full Set, Mixed, O18",
+    "46D": "Rince Leathsheit Measctha / Half Set, Mixed, O18",
+    "46F": "Rince Leathsheit Measctha / Half Set, Mixed, Faoi 18",
+    "47L": "Rince Seit, Measctha, Os cionn 35 / Full Set, Mixed, O35, O35",
+    "48A": "Rince ar an Sean-Nós, Faoi 12",
+    "48B": "Rince ar an Sean-Nós, 12-15",
+    "48C": "Rince ar an Sean-Nós, 15-18",
+    "48D": "Rince ar an Sean-Nós, O18",
+    "48M": "Rince ar an Sean-Nós, Faoi 10",
+    "49G": "Comhrá Gaeilge, Faoi 9",
+    "49H": "Comhrá Gaeilge, 9-11",
+    "49I": "Comhrá Gaeilge, 11-13",
+    "49J": "Comhrá Gaeilge, 13-15",
+    "49K": "Comhrá Gaeilge, 15-18",
+    "4A": "Feadóg / Whistle, Faoi 12",
+    "4B": "Feadóg / Whistle, 12-15",
+    "4C": "Feadóg / Whistle, 15-18",
+    "4D": "Feadóg / Whistle, O18",
+    "4M": "Bosca Ceoil / Button Accordion, Faoi 10",
+    "4M": "Feadóg / Whistle, Faoi 10",
+    "50A": "Storytelling, Faoi 12",
+    "50B": "Storytelling, 12-15",
+    "50C": "Storytelling, 15-18",
+    "50D": "Storytelling, O18",
+    "50M": "Storytelling, Faoi 10",
+    "51A": "Scéalaíocht, Faoi 12",
+    "51B": "Scéalaíocht, 12-15",
+    "51C": "Scéalaíocht, 15-18",
+    "51C": "Seealaiocht.  018",
+    "51D": "Scéalaíocht, O18",
+    "52D": "Traditional Singing (English) with Self-Accompaniment on the Harp, O18",
+    "52F": "Traditional Singing (English) with Self-Accompaniment on the Harp, Faoi 18",
+    "53D": "Amhránaíocht Traidisiúnta le Féin-Tionlacan ar an gCruit, O18",
+    "53F": "Amhránaíocht Traidisiúnta le Féin-Tionlacan ar an gCruit, Faoi 18",
+    "5A": "Cairdín Pianó / Piano Accordion, Faoi 12",
+    "5B": "Cairdín Pianó / Piano Accordion, 12-15",
+    "5C": "Cairdín Pianó / Piano Accordion, 15-18",
+    "5D": "Cairdín Pianó / Piano Accordion, O18",
+    "6A": "Consairtín / Concertina, Faoi 12",
+    "6B": "Consairtín / Concertina, 12-15",
+    "6C": "Consairtín / Concertina, 15-18",
+    "6D": "Consairtín / Concertina, O18",
+    "6M": "Consairtín / Concertina, Faoi 10",
+    "7A": "Píb Uilleann / Uilleann Pipes, Faoi 12",
+    "7B": "Píb Uilleann / Uilleann Pipes, 12-15",
+    "7C": "Píb Uilleann / Uilleann Pipes, 15-18",
+    "7D": "Píb Uilleann / Uilleann Pipes, O18",
+    "7M": "Píb Uilleann / Uilleann Pipes, Faoi 10",
+    "8A": "Cruit / Irish Harp, Faoi 12",
+    "8B": "Cruit / Irish Harp, 12-15",
+    "8C": "Cruit / Irish Harp, 15-18",
+    "8D": "Cruit / Irish Harp, O18",
+    "8M": "Cruit / Irish Harp, Faoi 10",
+    "9A": "Orgán Béil / Mouth Organ, Faoi 12",
+    "9B": "Orgán Béil / Mouth Organ, 12-15",
+    "9C": "Orgán Béil / Mouth Organ, 15-18",
+    "9D": "Orgán Béil / Mouth Organ, O18"
+  }
+
+  function lookupCode(code) {
+    return COMPETITION_CODES[code] || "UNKNOWN";
+  }
+
+  function onSheetLoad(file, callback) {
+    const filename = file.name.split('.')[0];
+    var fileReader = new FileReader();
+    fileReader.onload = function(event) {
+      var data = new Uint8Array(event.target.result);
+      var workbook = XLSX.read(data);
+      var sheetName = workbook.SheetNames[0];
+      var sheet = workbook.Sheets[sheetName];
+      var rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
+      callback(filename, rows);
+    }
+    fileReader.readAsArrayBuffer(file);
+  }
 
   function isMultiEntryComp(competitionNumber) {
     return (competitionNumber == 23 || competitionNumber == 24 || (competitionNumber >= 40 && competitionNumber <= 47));
@@ -159,6 +420,56 @@
     return messages;
   }
 
+  function convertMembers(filename, rows) {
+    var cleanedWorkbook = XLSX.utils.book_new();
+    var sheet = {};
+    var messages = [];
+    let header = [
+["Fleadh Cheoil\nÁtha Cliath\n2024", "", "BRANCH ENTRIES ONLY (Use results spreadsheet for results)\n\n\nDo not delete rows or type in this column", "In the case of Duets/Trios/Set & Céilí Dancing,\nplease populate all performers names on\nseparate lines, next to 1., 2., etc.\nSet & Céilí Dancing \"Group Names\" can be\npopulated into the first line of the entry.", "Do Not\nRetype\nCCÉ in\nBranch\nName.", "Please do not type CCÉ in\nBranch Name Field. If a\ncompetitor is not from a branch,\nplease only supply a basic\naddress (no house numbers, etc)", "(County / State)", "If based\noutside of\nIE, please\nfill in\nAbbr. (UK,.)", "", "Please populate instruments in the case of Duets, Trios, Rogha Ghléas (& tuning) and accompaniment.\nName of\nNewly Composed Song/Tune\nor Sets/Céilí Dance"],
+["Blank", "No &\nGrade", "Competition Name", "Competitor Name(s)", "CCÉ", "Branch Name", "County", "Country\n(2 letters)", "Membership No.", "Instrument/Tuning or Tune/Song/Dance Name"]
+    ]
+    XLSX.utils.sheet_add_aoa(sheet, header, { origin: "A1" });
+
+    console.log(`Converting ${filename} with ${rows.length} rows.`);
+    outputIndex = 2;
+    for (var i = 1; i < rows.length; i++) {
+      var row = rows[i];
+      if (!row) {
+        continue;
+      }
+
+      // for every string-valued cell, trim its value
+      for (var j = 0; j < row.length; j++) {
+        row[j] = trim(row[j]);
+      }
+      let competitorName = row[2];
+      let membershipNo = row[7];
+      let branchOrLocation = row[8];
+      let county = "Áth Cliath";
+      let country = "";
+      let instrument = row[10] + row[11];
+      let competitions = row[9];
+
+      if (competitions === undefined || competitions == "") {
+        // no data; skip, although we're probably at the end
+        continue;
+      }
+
+      // remove commas from competition names (e.g. "Foinn Mhala, Fidil") so we can split correctly
+      let codes = competitions.replaceAll(", F", " F").split(", ").map(comp => comp.split(" ")[0]);
+
+      // write back one row for each competition
+      codes.forEach(code => {
+        output = ["", code, lookupCode(code), competitorName, "CCÉ", branchOrLocation, county, country, membershipNo, instrument];
+        XLSX.utils.sheet_add_aoa(sheet, [output], { origin: `A${++outputIndex}` });
+      });
+    }
+
+    XLSX.utils.book_append_sheet(cleanedWorkbook, sheet, "Entries");
+    var cleanedData = XLSX.writeFile(cleanedWorkbook, `${filename}-converted.xls`, { cellDates: true, type: "binary" });
+    return messages;
+  }
+
   function toTitleCase(s) {
     if (s === undefined || s == "")
       return s;
@@ -172,6 +483,7 @@
     var errors = [];
     var warnings = [];
     var competitorNumberByName = {};
+    var competitorNameByNumber = {};
     var competitorsByCompetitionNumber = {};
     var competitionsByCompetitorName = {};
     var currentCompetition = 0;
@@ -184,7 +496,7 @@
         continue;
       }
       var competitorName = trim(row[3]);
-      var isMember = "CCÉ" === trim(row[4]);
+      var isMember = "" !== trim(row[4]);
       var membershipNo = parseInt(trim(row[8]) || "#");
       var hasMembershipNumber = !isNaN(membershipNo);
       var competitionCode = trim(row[1]);
@@ -274,7 +586,14 @@
             warnings.push(`Row ${i+1}: Assuming non-Comhaltas member ${competitorName} in competition ${competitionCode}`);
           }
         }
-        if (competitorName in competitorNumberByName && competitorNumberByName[competitorName] !== membershipNo) {
+
+        if (hasMembershipNumber && (competitorNameByNumber[membershipNo] || competitorName) !== competitorName) {
+          errors.push(`Row ${i+1}: Competitor ${competitorName} membership number clashes with ${competitorNameByNumber[membershipNo]}`);
+        } else if (hasMembershipNumber) {
+          competitorNameByNumber[membershipNo] = competitorName;
+        }
+
+        if ((competitorNumberByName[competitorName] || membershipNo) !== membershipNo) {
           errors.push(`Row ${i+1}: Competitor ${competitorName} has multiple membership numbers: ${competitorNumberByName[competitorName]} and ${membershipNo}`);
         } else if (hasMembershipNumber) {
           competitorNumberByName[competitorName] = membershipNo;
@@ -398,9 +717,9 @@
     resultsDiv.append(alertDiv);
   }
 
-  function displayMergeResults(info) {
+  function displayResults(action, info) {
     var resultsDiv = $('#results');
-    var res = $(`<div class="bg-blue-100 border-t border-b border-blue-500 text-blue-700 px-4 py-3" role="alert"><p class="font-bold">Merge successful</p></div>`);
+    var res = $(`<div class="bg-blue-100 border-t border-b border-blue-500 text-blue-700 px-4 py-3" role="alert"><p class="font-bold">${action} successful</p></div>`);
     resultsDiv.empty();
     resultsDiv.append(res);
 
@@ -409,7 +728,6 @@
       ul.append($('<li>').text(error));
     });
     if (info.length > 0) {
-      res.append('<p>Changes made:</p>');
       res.append(ul);
     }
   }

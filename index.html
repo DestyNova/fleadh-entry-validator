@@ -37,6 +37,7 @@
               <button type="button" id="merge" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded mb-2">Merge</button>
               <button type="button" id="nonmembers" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded mb-2">Sheet converter: non-members</button>
               <button type="button" id="members" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded mb-2">Sheet converter: members</button>
+              <button type="button" id="groups" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded mb-2">Sheet converter: groups and bands</button>
             </p>
           </div>
         </form>
@@ -79,7 +80,6 @@
           console.log(errors);
           if (errors.length == 0) {
             // looks good, add the rows for later
-            console.log("pushing rows");
             allRows.push(rows);
           }
 
@@ -90,7 +90,6 @@
       $('#merge').enable;
       $('#merge').off('click').click(function() {
         if (allRows.length > 0) {
-          console.log("all rows", allRows);
         }
         var messages = merge(allRows);
         displayResults("Merge", messages);
@@ -120,6 +119,19 @@
       onSheetLoad(files[0], (filename, rows) => {
         var messages = convertMembers(filename, rows);
         displayResults("Member spreadsheet conversion", messages);
+      });
+
+    });
+
+    $('#groups').enable;
+    $('#groups').off('click').click(function() {
+      var files = $('#file-input')[0].files;
+      var resultsDiv = $('#results');
+      resultsDiv.empty();
+
+      onSheetLoad(files[0], (filename, rows) => {
+        var messages = convertGroupsAndBands(filename, rows);
+        displayResults("Groups and bands spreadsheet conversion", messages);
       });
 
     });
@@ -421,6 +433,48 @@
   }
 
   function convertMembers(filename, rows) {
+    transformSheet(filename, rows, row => {
+      let competitorName = row[2];
+      let membershipNo = row[7];
+      let cce = "CCÉ";
+      let branchOrLocation = row[8];
+      let county = "Áth Cliath";
+      let country = "";
+      let instrument = row[10] + row[11];
+      let competitions = row[9];
+      return [competitorName, membershipNo, cce, branchOrLocation, county, country, instrument, competitions];
+    });
+  }
+
+  function convertNonMembers(filename, rows) {
+    transformSheet(filename, rows, row => {
+      let competitorName = row[2];
+      let membershipNo = "";
+      let cce = "";
+      let branchOrLocation = row[5];
+      let county = "Áth Cliath";
+      let country = "";
+      let instrument = row[7] + row[8];
+      let competitions = row[6];
+      return [competitorName, membershipNo, cce, branchOrLocation, county, country, instrument, competitions];
+    });
+  }
+
+  function convertGroupsAndBands(filename, rows) {
+    transformSheet(filename, rows, row => {
+      let competitorName = row[6];
+      let membershipNo = "";
+      let cce = row[4] === "Yes" ? "CCÉ" : "";
+      let branchOrLocation = row[5];
+      let county = "Áth Cliath";
+      let country = "";
+      let instrument = "";
+      let competitions = row[7];
+      return [competitorName, membershipNo, cce, branchOrLocation, county, country, instrument, competitions];
+    });
+  }
+
+  function transformSheet(filename, rows, transform) {
     var cleanedWorkbook = XLSX.utils.book_new();
     var sheet = {};
     var messages = [];
@@ -442,13 +496,8 @@
       for (var j = 0; j < row.length; j++) {
         row[j] = trim(row[j]);
       }
-      let competitorName = row[2];
-      let membershipNo = row[7];
-      let branchOrLocation = row[8];
-      let county = "Áth Cliath";
-      let country = "";
-      let instrument = row[10] + row[11];
-      let competitions = row[9];
+
+      let [competitorName, membershipNo, cce, branchOrLocation, county, country, instrument, competitions] = transform(row);
 
       if (competitions === undefined || competitions == "") {
         // no data; skip, although we're probably at the end
@@ -460,7 +509,7 @@
 
       // write back one row for each competition
       codes.forEach(code => {
-        output = ["", code, lookupCode(code), competitorName, "CCÉ", branchOrLocation, county, country, membershipNo, instrument];
+        let output = ["", code, lookupCode(code), competitorName, cce, branchOrLocation, county, country, membershipNo, instrument];
         XLSX.utils.sheet_add_aoa(sheet, [output], { origin: `A${++outputIndex}` });
       });
     }
